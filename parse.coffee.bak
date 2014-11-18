@@ -1,0 +1,106 @@
+fs = require 'fs'
+
+dictionary = fs.readFileSync('raw.txt').toString().split '\n'
+
+class Word
+  constructor: (@stems = []) ->
+    @parts = []
+
+  matches: (inflect) ->
+    a = (@pos is inflect.pos or @pos is 'V' and inflect.pos is 'VPAR') and (@type is inflect.type)
+
+  applyInflects: (inflects) ->
+    applications = []
+    for inflect in inflects when @matches inflect
+      applications.push @parts[inflect.which] + inflect.ending
+    return applications
+
+  sort: ->
+    @stems.sort (a, b) -> if a.which > b.which then 1 else -1
+
+    @pos = @stems[0].pos
+    @type = @stems[0].type
+    @line = @stems[0].line
+
+    @parts = []
+    lastIndex = 0; lastStem = null
+    for i in [0...4]
+      if lastIndex < @stems.length and @stems[lastIndex].which is i
+        lastStem = @stems[lastIndex].stem
+        lastIndex++
+      @parts.push lastStem
+
+  #parts: -> @parts#; @stems.map (x) -> x.stem
+
+class Stem
+  constructor: (@stem, @pos, @type, @variant, @which, @line) ->
+    @which = Number @which
+    @type = @type.toString()
+    @variant = @variant.toString()
+
+Stem.fromArray = (line) ->
+  new Stem line[0], line[1], line[2], line[3], line[line.length - 3], line[line.length - 2]
+
+class NounInfo
+  constructor: (@gender, @number, @case) ->
+
+class VerbInfo
+  constructor: (@tense, @voice, @mood, @person, @number) ->
+
+class Inflect
+  constructor: (@pos, @type, @variant, @which, @info, @ending) ->
+    @which = Number @which
+    @type = @type.toString()
+    @variant = @variant.toString()
+
+Inflect.fromArray = (line) ->
+  pos = line[0]
+  switch pos
+    when 'ADV'
+      return new Inflect pos, line[1], 0, line[2], null, ''
+    when 'PREP', 'CONJ', 'INTERJ'
+      return new Inflect pos, 0, 0, 1, null, ''
+    when 'N'
+      return new Inflect pos, line[1], line[2], line[6], new NounInfo(line[3], line[4], line[5]), (if line[7] is '0' then '' else line[8])
+    when 'ADJ'
+      return new Inflect pos, line[1], line[2], line[7], new NounInfo(line[3], line[4], line[5]), (if line[8] is '0' then '' else line[9])
+    when 'V'
+      return new Inflect pos, line[1], line[2], line[8],
+        new VerbInfo(line[3], line[4], line[5], line[6], line[7]), (if line[9] is '0' then '' else line[10])
+fs.readFile 'inflects.txt', (err, data) ->
+  data = data.toString()
+
+  inflects = []
+
+  for line in data.split '\n'
+    line = line[..line.indexOf('--')]
+    if line.length is 0
+      continue
+    line = line.split /\s+/
+
+    inflect = Inflect.fromArray line
+    if inflect?
+      inflects.push inflect
+
+  fs.readFile 'stems.txt', (err, data) ->
+    data = data.toString()
+
+    stems = []
+
+    for line in data.split '\n'
+      line = line[..line.indexOf('--')]
+      if line.length is 0
+        continue
+      line = line.split /\s+/
+      stems.push Stem.fromArray line
+
+    words = {}
+    for stem in stems
+      words[stem.line] ?= new Word()
+      words[stem.line].stems.push stem
+
+    for line, word of words
+      word.sort()
+      console.log dictionary[word.line]
+      console.log word.parts.join ', '
+      console.log word.applyInflects inflects
